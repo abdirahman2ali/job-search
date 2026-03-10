@@ -287,7 +287,7 @@ def _job_card(rank: int, job: dict, cover_letter: Optional[str] = None) -> str:
   </p>
   <div style='margin:10px 0'>{_skill_pills(job.get("key_match_skills", []))}</div>
   {concern_block}
-  <a href='{job.get("apply_link", "#")}'
+  <a href='{job.get("apply_link", "#") if (job.get("apply_link") or "").startswith("http") else "#"}'
      style='display:inline-block;margin-top:16px;background:#111827;color:#ffffff;
             padding:10px 22px;border-radius:8px;text-decoration:none;
             font-size:14px;font-weight:600'>
@@ -399,6 +399,8 @@ def main() -> None:
     print("\n🌐 Searching JSearch...")
     all_jobs = search_jobs()
     new_jobs = [j for j in all_jobs if j["id"] not in seen_ids]
+    # Cap before scoring to avoid overloading the Claude prompt
+    new_jobs = new_jobs[:30]
     print(f"   Fetched: {len(all_jobs)} | New: {len(new_jobs)}")
 
     if not new_jobs:
