@@ -7,9 +7,11 @@ Run daily via launchd.
 
 import json
 import os
+import shutil
 import smtplib
 import subprocess
 import sys
+import traceback
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -79,9 +81,10 @@ def generate_cover_letter(job: dict) -> str:
         company=job.get("company", ""),
         job_description=(job.get("description") or "")[:3000],
     )
+    claude_bin = shutil.which("claude") or "/opt/homebrew/bin/claude"
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     result = subprocess.run(
-        ["/opt/homebrew/bin/claude", "-p", prompt],
+        [claude_bin, "-p", prompt],
         capture_output=True,
         text=True,
         timeout=90,
@@ -160,9 +163,10 @@ def score_with_claude(jobs: list[dict]) -> list[dict]:
         f"```json\n{json.dumps(jobs_slim, indent=2)}\n```"
     )
 
+    claude_bin = shutil.which("claude") or "/opt/homebrew/bin/claude"
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     result = subprocess.run(
-        ["/opt/homebrew/bin/claude", "-p", full_prompt],
+        [claude_bin, "-p", full_prompt],
         capture_output=True,
         text=True,
         timeout=120,
@@ -180,7 +184,10 @@ def score_with_claude(jobs: list[dict]) -> list[dict]:
         raise RuntimeError(f"No JSON array found in Claude output:\n{raw}")
     raw = raw[start:end + 1]
 
-    scored: list[dict] = json.loads(raw)
+    try:
+        scored: list[dict] = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse Claude scoring output: {e}\n\nRaw output:\n{raw}")
 
     job_map = {j["id"]: j for j in jobs}
     output = []
@@ -280,7 +287,7 @@ def _job_card(rank: int, job: dict, cover_letter: Optional[str] = None) -> str:
   </p>
   <div style='margin:10px 0'>{_skill_pills(job.get("key_match_skills", []))}</div>
   {concern_block}
-  <a href='{job.get("apply_link", "#")}'
+  <a href='{job.get("apply_link", "#") if (job.get("apply_link") or "").startswith("http") else "#"}'
      style='display:inline-block;margin-top:16px;background:#111827;color:#ffffff;
             padding:10px 22px;border-radius:8px;text-decoration:none;
             font-size:14px;font-weight:600'>
@@ -337,7 +344,6 @@ def build_html(jobs: list[dict], applications: Optional[dict] = None) -> str:
 
 def send_error_email(error: Exception) -> None:
     today = datetime.now().strftime("%b %d, %Y %H:%M")
-    import traceback
     tb = traceback.format_exc()
     html = f"""<!DOCTYPE html>
 <html><body style='font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 16px'>
@@ -393,6 +399,8 @@ def main() -> None:
     print("\n🌐 Searching JSearch...")
     all_jobs = search_jobs()
     new_jobs = [j for j in all_jobs if j["id"] not in seen_ids]
+    # Cap before scoring to avoid overloading the Claude prompt
+    new_jobs = new_jobs[:30]
     print(f"   Fetched: {len(all_jobs)} | New: {len(new_jobs)}")
 
     if not new_jobs:
