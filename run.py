@@ -144,6 +144,8 @@ def search_jobs() -> list[dict]:
         except Exception as e:
             print(f"  ⚠️  JSearch error for '{query}': {e}")
 
+        time.sleep(2)
+
     return jobs
 
 
