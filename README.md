@@ -1,6 +1,6 @@
 # job-search
 
-An automated job discovery and application assistant for contract Analytics Engineering roles. Runs daily, scores opportunities with Claude AI, generates cover letters for strong matches, and delivers an HTML email digest.
+An automated job discovery and application assistant for contract roles. Runs daily, scores opportunities with Claude AI, generates cover letters for strong matches, and delivers an HTML email digest.
 
 ---
 
