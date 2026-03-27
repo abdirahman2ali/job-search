@@ -6,7 +6,7 @@ An automated job discovery and application assistant for contract roles. Runs da
 
 ## 🔍 What It Does
 
-- Searches JSearch (RapidAPI) across 6 targeted queries for contract/remote Analytics Engineering roles
+- Searches JSearch (RapidAPI) across 6 targeted queries for contract/remote roles
 - Deduplicates results against previously seen jobs
 - Scores top candidates using Claude AI based on tech stack fit, contract authenticity, and seniority
 - Auto-generates cover letters for jobs scoring ≥ 8.5/10
