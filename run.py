@@ -11,6 +11,7 @@ import shutil
 import smtplib
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -25,9 +26,7 @@ from dotenv import load_dotenv
 AGENT_DIR = Path(__file__).parent
 DATA_DIR = AGENT_DIR / "data"
 SEEN_JOBS_PATH = DATA_DIR / "seen_jobs.json"
-LAST_REPORT_PATH = DATA_DIR / "last_report.json"
 PROMPT_PATH = AGENT_DIR / "prompt.md"
-APPLIED_JOBS_PATH = DATA_DIR / "applied_jobs.json"
 COVER_LETTER_PROMPT_PATH = AGENT_DIR / "cover_letter_prompt.md"
 AUTO_APPLY_THRESHOLD = 8.5
 
@@ -37,6 +36,9 @@ RAPIDAPI_KEY = os.environ["RAPIDAPI_KEY"]
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = "".join(c for c in os.environ["GMAIL_APP_PASSWORD"] if c.isalnum())
 RECIPIENT = os.environ.get("RECIPIENT_EMAIL", "abdirahman2ali@gmail.com")
+
+CLAUDE_BIN = shutil.which("claude") or "/opt/homebrew/bin/claude"
+CLAUDE_ENV = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
 JSEARCH_QUERIES = [
     "Analytics Engineer contract remote upwork",
@@ -63,17 +65,6 @@ def save_seen_jobs(seen: set[str]) -> None:
 
 # --- Cover Letter ---
 
-def load_applied_jobs() -> set[str]:
-    if APPLIED_JOBS_PATH.exists():
-        return set(json.loads(APPLIED_JOBS_PATH.read_text()))
-    return set()
-
-
-def save_applied_jobs(applied: set[str]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    APPLIED_JOBS_PATH.write_text(json.dumps(sorted(applied), indent=2))
-
-
 def generate_cover_letter(job: dict) -> str:
     template = COVER_LETTER_PROMPT_PATH.read_text()
     prompt = template.format(
@@ -81,14 +72,12 @@ def generate_cover_letter(job: dict) -> str:
         company=job.get("company", ""),
         job_description=(job.get("description") or "")[:3000],
     )
-    claude_bin = shutil.which("claude") or "/opt/homebrew/bin/claude"
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     result = subprocess.run(
-        [claude_bin, "-p", prompt],
+        [CLAUDE_BIN, "-p", prompt],
         capture_output=True,
         text=True,
         timeout=90,
-        env=env,
+        env=CLAUDE_ENV,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Cover letter generation failed:\n{result.stderr}")
@@ -165,14 +154,12 @@ def score_with_claude(jobs: list[dict]) -> list[dict]:
         f"```json\n{json.dumps(jobs_slim, indent=2)}\n```"
     )
 
-    claude_bin = shutil.which("claude") or "/opt/homebrew/bin/claude"
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     result = subprocess.run(
-        [claude_bin, "-p", full_prompt],
+        [CLAUDE_BIN, "-p", full_prompt],
         capture_output=True,
         text=True,
         timeout=120,
-        env=env,
+        env=CLAUDE_ENV,
     )
 
     if result.returncode != 0:
@@ -344,6 +331,13 @@ def build_html(jobs: list[dict], applications: Optional[dict] = None) -> str:
 </html>"""
 
 
+def _smtp_send(msg: MIMEMultipart) -> None:
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_ADDRESS, RECIPIENT, msg.as_string())
+
+
 def send_error_email(error: Exception) -> None:
     today = datetime.now().strftime("%b %d, %Y %H:%M")
     tb = traceback.format_exc()
@@ -366,10 +360,7 @@ def send_error_email(error: Exception) -> None:
     msg["To"] = RECIPIENT
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, RECIPIENT, msg.as_string())
+    _smtp_send(msg)
 
 
 def send_email(jobs: list[dict], applications: Optional[dict] = None) -> None:
@@ -380,10 +371,7 @@ def send_email(jobs: list[dict], applications: Optional[dict] = None) -> None:
     msg["To"] = RECIPIENT
     msg.attach(MIMEText(build_html(jobs, applications), "html"))
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, RECIPIENT, msg.as_string())
+    _smtp_send(msg)
 
     print(f"  ✅ Email sent → {RECIPIENT}")
 
@@ -420,34 +408,22 @@ def main() -> None:
         return
 
     # --- Cover letter generation for high scorers ---
-    applied_ids = load_applied_jobs()
     applications: dict[str, str] = {}  # job_id -> cover_letter text
 
     high_scorers = [j for j in top_jobs if (j.get("score") or 0) >= AUTO_APPLY_THRESHOLD]
     print(f"\n✍️  Cover letters: {len(high_scorers)} jobs above {AUTO_APPLY_THRESHOLD} threshold")
 
     for job in high_scorers:
-        if job["id"] in applied_ids:
-            print(f"   ⏭️  Already processed: {job.get('title')}")
-            continue
         print(f"   Generating for: {job.get('title')} @ {job.get('company')}")
         try:
-            cl = generate_cover_letter(job)
-            applications[job["id"]] = cl
-            applied_ids.add(job["id"])
+            applications[job["id"]] = generate_cover_letter(job)
             print(f"   ✅ Done")
         except Exception as e:
             print(f"   ⚠️  Failed: {e}")
 
-    save_applied_jobs(applied_ids)
-    print(f"💾 applied_jobs.json updated ({len(applied_ids)} total)")
-
     # --- Email ---
     print("\n📧 Sending email...")
     send_email(top_jobs, applications)
-
-    LAST_REPORT_PATH.write_text(json.dumps(top_jobs, indent=2))
-    print(f"💾 last_report.json saved")
 
     updated_seen = seen_ids | {j["id"] for j in all_jobs}
     save_seen_jobs(updated_seen)
