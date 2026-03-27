@@ -29,7 +29,7 @@ Generate cover letters (score ≥ 8.5)
     ↓
 Build + send HTML email digest
     ↓
-Persist state (seen_jobs, applied_jobs, last_report)
+Persist state (seen_jobs.json)
 ```
 
 ---
@@ -44,9 +44,7 @@ job-search/
 ├── requirements.txt          # Python dependencies
 ├── .env                      # Environment variables (not committed)
 └── data/
-    ├── seen_jobs.json        # Job IDs already reported (deduplication)
-    ├── applied_jobs.json     # Job IDs with generated cover letters
-    ├── last_report.json      # Most recent scored job results
+    ├── seen_jobs.json        # Job IDs already fetched (deduplication)
     └── run.log               # Execution log
 ```
 
@@ -64,10 +62,13 @@ pip install -r requirements.txt
 
 **2. Configure environment variables**
 
-Copy `.env.example` to `.env` and fill in your credentials:
+Create a `.env` file in the project root:
 
 ```bash
-cp .env.example .env
+RAPIDAPI_KEY=your_rapidapi_key
+GMAIL_ADDRESS=you@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+RECIPIENT_EMAIL=you@gmail.com   # optional, defaults to GMAIL_ADDRESS
 ```
 
 | Variable | Description |
@@ -75,7 +76,7 @@ cp .env.example .env
 | `RAPIDAPI_KEY` | API key from RapidAPI (JSearch) |
 | `GMAIL_ADDRESS` | Gmail address used to send the digest |
 | `GMAIL_APP_PASSWORD` | Gmail app password (not your account password) |
-| `RECIPIENT_EMAIL` | Email address to receive the daily digest |
+| `RECIPIENT_EMAIL` | Email address to receive the daily digest (optional) |
 
 **3. Ensure Claude CLI is installed**
 
